@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Playground — Interactive Prompt & Token Visualizer</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+          colors: {
+            bg: {
+              base: '#0d0e11',
+              surface: '#14161b',
+              elevated: '#1b1e25',
+              input: '#111317',
+            },
+            accent: {
+              orange: '#f95d2c',
+              orangeHover: '#ff7043',
+              amber: '#f59e0b',
+              emerald: '#10b981',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    :root {
+      --bg-base: #0d0e11;
+      --bg-surface: #14161b;
+      --bg-elevated: #1b1e25;
+      --border-subtle: #272b36;
+      --accent-orange: #f95d2c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-base);
+      color: #e5e7eb;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #2c313d;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f4657;
+    }
+
+    /* Custom Range Sliders (Orange-red accent) */
+    input[type="range"].playground-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 5px;
+      border-radius: 9999px;
+      background: #272b36;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"].playground-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #f95d2c;
+      border: 2px solid #fff;
+      box-shadow: 0 0 10px rgba(249, 93, 44, 0.5);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    input[type="range"].playground-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      box-shadow: 0 0 14px rgba(249, 93, 44, 0.8);
+    }
+    input[type="range"].playground-slider::-moz-range-thumb {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #f95d2c;
+      border: 2px solid #fff;
+      box-shadow: 0 0 10px rgba(249, 93, 44, 0.5);
+      cursor: pointer;
+    }
+
+    /* Toggle Switch */
+    .toggle-track {
+      width: 36px;
+      height: 20px;
+      background: #272b36;
+      border-radius: 9999px;
+      position: relative;
+      transition: background 0.2s ease;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .toggle-track.active {
+      background: #f95d2c;
+    }
+    .toggle-thumb {
+      width: 14px;
+      height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .toggle-track.active .toggle-thumb {
+      transform: translateX(16px);
+    }
+
+    /* Subtle Glows & Animations */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+    .animate-pulse-dot {
+      animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes blink-cursor {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+    .streaming-cursor::after {
+      content: '▋';
+      color: #f95d2c;
+      margin-left: 2px;
+      animation: blink-cursor 0.8s infinite;
+    }
+
+    .token-chip {
+      transition: transform 0.12s ease, background-color 0.12s ease;
+    }
+    .token-chip:hover {
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body class="min-h-screen lg:h-screen flex flex-col bg-[#0d0e11] text-gray-200 selection:bg-[#f95d2c]/30 selection:text-white">
+
+  <!-- TOP HEADER BAR -->
+  <header class="h-14 shrink-0 border-b border-[#272b36] bg-[#14161b]/95 backdrop-blur px-3 sm:px-4 flex items-center justify-between gap-2 z-20">
+    <div class="flex items-center gap-2.5 min-w-0">
+      <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-[#f95d2c] to-amber-500 flex items-center justify-center shadow-lg shadow-[#f95d2c]/20 shrink-0">
+        <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <h1 class="text-sm sm:text-base font-semibold tracking-tight text-white truncate">LLM Playground</h1>
+
+      <!-- Model Selector -->
+      <div class="hidden sm:flex items-center gap-2 ml-2">
+        <select id="modelSelect" aria-label="Select model" class="bg-[#1b1e25] border border-[#2f3542] hover:border-[#454d5e] text-xs sm:text-sm text-gray-100 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-[#f95d2c] transition-colors cursor-pointer max-w-[230px] md:max-w-[300px]">
+        </select>
+        <span id="modelListNote" class="hidden xl:inline text-[11px] text-gray-500">Fallback list — paste a key to load live models</span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 shrink-0">
+      <!-- Visual Lab Toggle -->
+      <button id="toggleVisualsBtn" type="button" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-[#2f3542] bg-[#1b1e25] hover:bg-[#232730] text-gray-200 transition-colors cursor-pointer" title="Toggle creative token & temperature visuals">
+        <svg class="w-3.5 h-3.5 text-[#f95d2c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3v18h18"/><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
+        </svg>
+        <span class="hidden md:inline">Visual Lab</span>
+      </button>
+
+      <!-- View Code Button -->
+      <button id="viewCodeBtn" type="button" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-[#2f3542] bg-[#1b1e25] hover:bg-[#232730] text-gray-200 transition-colors cursor-pointer">
+        <svg class="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+        </svg>
+        <span>View code</span>
+      </button>
+
+      <!-- Status Pill -->
+      <div id="statusPill" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+        <span id="statusDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse-dot"></span>
+        <span id="statusText" class="hidden sm:inline">DEMO — simulated stream</span>
+        <span id="statusTextShort" class="sm:hidden">DEMO</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MOBILE MODEL BAR & VIEW SWITCHER (< lg) -->
+  <div class="lg:hidden border-b border-[#272b36] bg-[#14161b] px-3 py-2 flex flex-col gap-2">
+    <select id="modelSelectMobile" aria-label="Select model mobile" class="sm:hidden w-full bg-[#1b1e25] border border-[#2f3542] text-xs text-gray-100 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-[#f95d2c]">
+    </select>
+    <div class="grid grid-cols-3 gap-1 bg-[#0d0e11] p-1 rounded-lg border border-[#272b36]">
+      <button type="button" data-mobile-tab="chat" class="mobile-tab-btn py-1.5 rounded-md text-xs font-medium bg-[#1b1e25] text-white transition-colors">Playground</button>
+      <button type="button" data-mobile-tab="params" class="mobile-tab-btn py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200 transition-colors">Parameters</button>
+      <button type="button" data-mobile-tab="diagnostics" class="mobile-tab-btn py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200 transition-colors">Diagnostics</button>
+    </div>
+  </div>
+
+  <!-- MAIN 3-COLUMN WORKSPACE -->
+  <main class="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-[290px_minmax(0,1fr)_310px] xl:grid-cols-[305px_minmax(0,1fr)_330px]">
+
+    <!-- LEFT SIDEBAR: API KEY & PARAMETERS -->
+    <aside id="leftSidebar" class="hidden lg:flex flex-col border-r border-[#272b36] bg-[#14161b] overflow-y-auto p-4 gap-5">
+      <!-- Groq API Key -->
+      <section class="space-y-2.5">
+        <div class="flex items-center justify-between">
+          <label for="apiKeyInput" class="text-xs font-semibold uppercase tracking-wider text-gray-400">Groq API key</label>
+          <button id="clearKeyBtn" type="button" class="text-[11px] text-gray-400 hover:text-white underline underline-offset-2 cursor-pointer">Clear key</button>
+        </div>
+        <div class="relative">
+          <input id="apiKeyInput" type="password" placeholder="gsk_..." autocomplete="off"
+            class="w-full bg-[#111317] border border-[#272b36] focus:border-[#f95d2c] rounded-lg px-3 py-2 text-xs font-mono text-gray-100 placeholder-gray-600 focus:outline-none transition-colors pr-16" />
+          <button id="toggleKeyVisBtn" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded cursor-pointer">Show</button>
+        </div>
+        <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
+          <input id="rememberKeyCheckbox" type="checkbox" class="rounded border-[#2f3542] bg-[#111317] text-[#f95d2c] focus:ring-0 cursor-pointer accent-[#f95d2c]" />
+          <span>Remember key in this tab</span>
+        </label>
+        <p class="text-[11px] leading-relaxed text-gray-500">
+          Your key stays in this browser and is sent nowhere except Groq. Leave blank to test in instant simulated Demo mode.
+        </p>
+      </section>
+
+      <div class="h-px bg-[#272b36]"></div>
+
+      <!-- Temperature -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between">
+          <label for="tempSlider" class="text-xs font-medium text-gray-200">Temperature</label>
+          <input id="tempNumber" type="number" min="0" max="2" step="0.05" value="0.7"
+            class="w-16 bg-[#111317] border border-[#272b36] focus:border-[#f95d2c] rounded-md px-2 py-1 text-xs font-mono text-right text-gray-100 focus:outline-none" />
+        </div>
+        <input id="tempSlider" type="range" min="0" max="2" step="0.05" value="0.7" class="playground-slider" />
+        <div class="flex justify-between text-[10px] text-gray-500 font-mono">
+          <span>0.0 Deterministic</span>
+          <span>2.0 Creative</span>
+        </div>
+      </section>
+
+      <!-- Max Tokens -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between">
+          <label for="maxTokensSlider" class="text-xs font-medium text-gray-200">Max tokens</label>
+          <input id="maxTokensNumber" type="number" min="16" max="4096" step="16" value="300"
+            class="w-16 bg-[#111317] border border-[#272b36] focus:border-[#f95d2c] rounded-md px-2 py-1 text-xs font-mono text-right text-gray-100 focus:outline-none" />
+        </div>
+        <input id="maxTokensSlider" type="range" min="16" max="4096" step="16" value="300" class="playground-slider" />
+        <p class="text-[11px] leading-relaxed text-gray-500">
+          Caps reply length against free-tier token-per-minute limits. On reasoning models this budget includes thinking tokens.
+        </p>
+      </section>
+
+      <!-- Stop Sequences -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between">
+          <label for="stopSeqInput" class="text-xs font-medium text-gray-200">Stop sequences</label>
+          <span class="text-[10px] text-gray-500">Max 4</span>
+        </div>
+        <input id="stopSeqInput" type="text" placeholder="e.g. Input:, ###"
+          class="w-full bg-[#111317] border border-[#272b36] focus:border-[#f95d2c] rounded-lg px-3 py-2 text-xs font-mono text-gray-100 placeholder-gray-600 focus:outline-none transition-colors" />
+        <p class="text-[11px] text-gray-500">Comma-separated. Only sent when not empty.</p>
+      </section>
+
+      <div class="h-px bg-[#272b36]"></div>
+
+      <!-- Web Search Toggle -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-medium text-gray-200">Web search</div>
+            <div class="text-[11px] text-gray-500">Adds live search context</div>
+          </div>
+          <button id="webSearchToggle" type="button" role="switch" aria-checked="false" class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+        <div id="webSearchWarning" class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-300 leading-relaxed">
+          This model has no web search (GPT-OSS models only).
+        </div>
+        <p class="text-[11px] leading-relaxed text-gray-500">
+          Web search adds extra input tokens and latency before the first token.
+        </p>
+      </section>
+
+      <!-- Reasoning Toggle -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-medium text-gray-200">Reasoning</div>
+            <div class="text-[11px] text-gray-500">Internal chain-of-thought</div>
+          </div>
+          <button id="reasoningToggle" type="button" role="switch" aria-checked="false" class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+        <div id="reasoningWarning" class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-300 leading-relaxed">
+          This model has no reasoning mode.
+        </div>
+        <p class="text-[11px] leading-relaxed text-gray-500">
+          Reasoning models spend tokens thinking before answering, which counts against the tokens-per-minute quota.
+        </p>
+      </section>
+
+      <!-- Reset Button -->
+      <div class="mt-auto pt-2">
+        <button id="resetConvBtn" type="button" class="w-full py-2 px-3 rounded-lg border border-[#2f3542] bg-[#1b1e25] hover:bg-red-500/10 hover:border-red-500/40 hover:text-red-300 text-xs font-medium text-gray-300 transition-colors cursor-pointer">
+          Reset conversation
+        </button>
+      </div>
+    </aside>
+
+    <!-- CENTER PANE: CREATIVE VISUALS + CONVERSATION + PROMPT INPUT -->
+    <section id="centerPane" class="flex-1 min-h-0 flex flex-col bg-[#0d0e11] relative">
+
+      <!-- CREATIVE VISUAL LAB (Collapsible interactive visual strip) -->
+      <div id="visualLabPanel" class="border-b border-[#272b36] bg-gradient-to-b from-[#14161b] to-[#0f1116] px-4 py-3 shrink-0">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+
+          <!-- Visual 1: Interactive Temperature & Next-Token Probability Visualizer -->
+          <div class="rounded-xl border border-[#272b36] bg-[#14161b]/90 p-3 flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-[#f95d2c]"></span>
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-300">Next-Token Probability &amp; Temperature</span>
+              </div>
+              <span id="entropyBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#f95d2c]/15 text-[#f95d2c] border border-[#f95d2c]/30">
+                T = 0.70 · Balanced
+              </span>
+            </div>
+            <div id="probBarsContainer" class="space-y-1.5 pt-0.5"></div>
+          </div>
+
+          <!-- Visual 2: Live Neural Token Stream Canvas & Tokenizer Preview -->
+          <div class="rounded-xl border border-[#272b36] bg-[#14161b]/90 p-3 flex flex-col gap-2 relative overflow-hidden">
+            <div class="flex items-center justify-between gap-2 z-10">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-300">Live Tokenization &amp; Neural Pulse</span>
+              </div>
+              <span id="liveTokenCountBadge" class="text-[10px] font-mono text-gray-400">0 est. prompt tokens</span>
+            </div>
+            <canvas id="neuralCanvas" class="w-full h-14 rounded-lg bg-[#0d0e11] border border-[#222630]"></canvas>
+            <div id="tokenPreviewStrip" class="flex flex-wrap gap-1 max-h-12 overflow-hidden text-[10px] font-mono"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- CONVERSATION / OUTPUT AREA -->
+      <div id="conversationArea" class="flex-1 min-h-[220px] overflow-y-auto p-4 sm:p-6 space-y-4">
+        <!-- Empty State -->
+        <div id="emptyState" class="h-full min-h-[180px] flex flex-col items-center justify-center text-center max-w-md mx-auto py-8">
+          <div class="w-12 h-12 rounded-2xl bg-[#14161b] border border-[#272b36] flex items-center justify-center mb-3 shadow-inner">
+            <svg class="w-6 h-6 text-[#f95d2c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <h2 class="text-sm font-semibold text-gray-200 mb-1">Ready to test your prompt</h2>
+          <p class="text-xs text-gray-500 leading-relaxed">
+            Edit the prompt below or pick a preset, tweak parameters on the left, and press <span class="font-mono text-gray-300">Submit</span> to stream a response and watch live token metrics.
+          </p>
+        </div>
+        <!-- Messages injected here -->
+        <div id="messagesList" class="space-y-4 hidden"></div>
+      </div>
+
+      <!-- PROMPT INPUT COMPOSER -->
+      <div class="border-t border-[#272b36] bg-[#14161b] p-3 sm:p-4 shrink-0 space-y-2.5">
+        <!-- Quick Prompt Presets -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold shrink-0 mr-1">Presets:</span>
+          <button type="button" data-preset="fewshot" class="preset-btn px-2 py-1 rounded-md text-[11px] font-medium bg-[#1b1e25] hover:bg-[#252a34] text-gray-300 border border-[#2f3542] shrink-0 transition-colors cursor-pointer">Few-Shot Sentiment</button>
+          <button type="button" data-preset="cot" class="preset-btn px-2 py-1 rounded-md text-[11px] font-medium bg-[#1b1e25] hover:bg-[#252a34] text-gray-300 border border-[#2f3542] shrink-0 transition-colors cursor-pointer">Chain-of-Thought</button>
+          <button type="button" data-preset="role" class="preset-btn px-2 py-1 rounded-md text-[11px] font-medium bg-[#1b1e25] hover:bg-[#252a34] text-gray-300 border border-[#2f3542] shrink-0 transition-colors cursor-pointer">Role + JSON Format</button>
+          <button type="button" data-preset="zeroshot" class="preset-btn px-2 py-1 rounded-md text-[11px] font-medium bg-[#1b1e25] hover:bg-[#252a34] text-gray-300 border border-[#2f3542] shrink-0 transition-colors cursor-pointer">Zero-Shot</button>
+        </div>
+
+        <textarea id="promptInput" rows="6" spellcheck="false"
+          class="w-full bg-[#111317] border border-[#272b36] focus:border-[#f95d2c] rounded-xl p-3 text-xs sm:text-[13px] leading-relaxed font-mono text-gray-100 placeholder-gray-600 focus:outline-none resize-y min-h-[110px] max-h-[280px] transition-colors"
+          placeholder="Enter your prompt here..."></textarea>
+
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-[11px] text-gray-500">
+            <kbd class="px-1.5 py-0.5 rounded bg-[#1b1e25] border border-[#2f3542] font-mono text-[10px] text-gray-300">Ctrl+Enter</kbd>
+            or
+            <kbd class="px-1.5 py-0.5 rounded bg-[#1b1e25] border border-[#2f3542] font-mono text-[10px] text-gray-300">Cmd+Enter</kbd>
+            to submit ·
+            <kbd class="px-1.5 py-0.5 rounded bg-[#1b1e25] border border-[#2f3542] font-mono text-[10px] text-gray-300">Esc</kbd>
+            to stop
+          </span>
+
+          <div class="flex items-center gap-2 ml-auto">
+            <button id="stopBtn" type="button" class="hidden px-3.5 py-2 rounded-lg text-xs font-semibold border border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-500/25 transition-colors cursor-pointer">
+              Stop
+            </button>
+            <button id="submitBtn" type="button" class="px-4 py-2 rounded-lg text-xs font-semibold bg-[#f95d2c] hover:bg-[#ff7043] text-white shadow-lg shadow-[#f95d2c]/20 transition-all active:scale-[0.98] cursor-pointer">
+              Submit
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT SIDEBAR: LIVE ANALYSIS, SPEED & TOKEN USAGE -->
+    <aside id="rightSidebar" class="hidden lg:flex flex-col border-l border-[#272b36] bg-[#14161b] overflow-y-auto p-4 gap-4">
+
+      <!-- Card 1: PROMPT ANALYSIS -->
+      <div class="rounded-xl border border-[#272b36] bg-[#181b22] p-3.5 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-[11px] font-bold uppercase tracking-wider text-gray-400">Prompt Analysis</h2>
+          <span id="promptClassBadge" class="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-[#f95d2c] text-[#f95d2c] bg-[#f95d2c]/10">
+            FEW-SHOT (2)
+          </span>
+        </div>
+        <p class="text-[11px] text-gray-500 leading-relaxed">
+          Example count equals the largest count from any single rule. Updates live as you type.
+        </p>
+        <ul id="promptRulesList" class="space-y-1.5 text-[11px]"></ul>
+      </div>
+
+      <!-- Card 2: SPEED (LAST REPLY) + SVG Gauge -->
+      <div class="rounded-xl border border-[#272b36] bg-[#181b22] p-3.5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[11px] font-bold uppercase tracking-wider text-gray-400">Speed (Last Reply)</h2>
+          <span id="tpsGaugeLabel" class="text-[10px] font-mono text-emerald-400">Idle</span>
+        </div>
+
+        <!-- Creative Speedometer Arc SVG -->
+        <div class="flex items-center gap-3 bg-[#111317] rounded-lg p-2.5 border border-[#232732]">
+          <svg class="w-16 h-10 shrink-0" viewBox="0 0 100 58">
+            <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#272b36" stroke-width="8" stroke-linecap="round" />
+            <path id="tpsArc" d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f95d2c" stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="125.66" stroke-dashoffset="125.66" style="transition: stroke-dashoffset 0.4s ease;" />
+            <text id="tpsArcValue" x="50" y="48" text-anchor="middle" fill="#e5e7eb" font-size="13" font-family="JetBrains Mono, monospace" font-weight="600">-</text>
+          </svg>
+          <div class="flex-1 grid grid-cols-1 gap-1 text-xs">
+            <div class="flex justify-between">
+              <span class="text-gray-400 text-[11px]">ms to first token</span>
+              <span id="statTtft" class="font-mono text-gray-200">-</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400 text-[11px]">seconds total</span>
+              <span id="statTotalSec" class="font-mono text-gray-200">-</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400 text-[11px]">tokens / second</span>
+              <span id="statTps" class="font-mono text-gray-200">-</span>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-gray-500 leading-relaxed">
+          Web search and thinking delay the first answer token.
+        </p>
+      </div>
+
+      <!-- Card 3: TOKEN USAGE + Turn Growth Chart -->
+      <div class="rounded-xl border border-[#272b36] bg-[#181b22] p-3.5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[11px] font-bold uppercase tracking-wider text-gray-400">Token Usage</h2>
+          <span class="text-[10px] font-mono text-gray-500">TPM Quota</span>
+        </div>
+
+        <!-- Stacked Token Composition Bar -->
+        <div class="space-y-1.5">
+          <div class="h-2.5 w-full rounded-full bg-[#111317] overflow-hidden flex border border-[#232732]">
+            <div id="barInputTokens" class="h-full bg-sky-500 transition-all duration-300" style="width: 0%" title="Input tokens"></div>
+            <div id="barReasoningTokens" class="h-full bg-amber-400 transition-all duration-300" style="width: 0%" title="Reasoning tokens"></div>
+            <div id="barOutputTokens" class="h-full bg-[#f95d2c] transition-all duration-300" style="width: 0%" title="Output tokens"></div>
+          </div>
+          <div class="flex items-center justify-between text-[10px] text-gray-500 font-mono">
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>Input</span>
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Think</span>
+            <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-[#f95d2c]"></span>Output</span>
+          </div>
+        </div>
+
+        <div class="space-y-1.5 text-xs">
+          <div class="flex justify-between py-0.5 border-b border-[#232732]">
+            <span class="text-gray-400">Input tokens</span>
+            <span id="statInputTokens" class="font-mono text-gray-200">-</span>
+          </div>
+          <div class="flex justify-between py-0.5 border-b border-[#232732]">
+            <span class="text-gray-400">Reasoning tokens</span>
+            <span id="statReasoningTokens" class="font-mono text-gray-200">-</span>
+          </div>
+          <div class="flex justify-between py-0.5 border-b border-[#232732]">
+            <span class="text-gray-400">Output tokens</span>
+            <span id="statOutputTokens" class="font-mono text-gray-200">-</span>
+          </div>
+          <div class="flex justify-between py-0.5 border-b border-[#232732] font-semibold">
+            <span class="text-gray-200">Total</span>
+            <span id="statTotalTokens" class="font-mono text-white">-</span>
+          </div>
+          <div class="flex justify-between py-0.5">
+            <span class="text-gray-400">Tokens left this minute</span>
+            <span id="statTpmLeft" class="font-mono text-emerald-400">-</span>
+          </div>
+        </div>
+
+        <!-- Turn-by-Turn Context Growth SVG Mini Chart -->
+        <div class="bg-[#111317] rounded-lg p-2.5 border border-[#232732] space-y-1.5">
+          <div class="flex justify-between items-center text-[10px] text-gray-400">
+            <span>Context Growth / Turn</span>
+            <span id="turnCountLabel" class="font-mono text-gray-500">0 turns</span>
+          </div>
+          <svg id="contextGrowthSvg" class="w-full h-14" viewBox="0 0 220 48" preserveAspectRatio="none">
+            <text x="110" y="27" text-anchor="middle" fill="#4b5563" font-size="9" font-family="Inter, sans-serif">Submit prompts to plot context growth</text>
+          </svg>
+        </div>
+
+        <p class="text-[11px] text-gray-500 leading-relaxed">
+          Input tokens grow every turn because the entire conversation is re-sent on each stateless API request, running against rate limits like the quota above.
+        </p>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- VIEW CODE MODAL -->
+  <div id="codeModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+    <div class="w-full max-w-2xl rounded-2xl border border-[#2f3542] bg-[#14161b] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div class="px-5 py-3.5 border-b border-[#272b36] flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-semibold text-white">This request as code</h3>
+          <p class="text-[11px] text-gray-500">Generated live from your sliders, history, and prompt. API key is never printed.</p>
+        </div>
+        <button id="closeCodeModalBtn" type="button" class="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#1b1e25] transition-colors cursor-pointer" aria-label="Close modal">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4">
+        <!-- curl block -->
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-gray-300">curl</span>
+            <button type="button" data-copy-target="curlCodeBlock" class="copy-code-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#1b1e25] hover:bg-[#252a34] border border-[#2f3542] text-gray-200 transition-colors cursor-pointer">Copy</button>
+          </div>
+          <pre id="curlCodeBlock" class="bg-[#0d0e11] border border-[#272b36] rounded-xl p-3.5 text-[11px] font-mono text-gray-300 overflow-x-auto leading-relaxed"></pre>
+        </div>
+
+        <!-- Python block -->
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-gray-300">Python (OpenAI client pointed at Groq)</span>
+            <button type="button" data-copy-target="pythonCodeBlock" class="copy-code-btn px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#1b1e25] hover:bg-[#252a34] border border-[#2f3542] text-gray-200 transition-colors cursor-pointer">Copy</button>
+          </div>
+          <pre id="pythonCodeBlock" class="bg-[#0d0e11] border border-[#272b36] rounded-xl p-3.5 text-[11px] font-mono text-gray-300 overflow-x-auto leading-relaxed"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="fixed bottom-4 right-4 z-50 hidden items-center gap-2 px-3.5 py-2 rounded-lg bg-[#1b1e25] border border-[#2f3542] text-xs text-gray-100 shadow-xl">
+    <span id="toastDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+    <span id="toastMsg">Copied to clipboard</span>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // =====================================================================
+      // 1. MODEL CATALOG & PRESETS
+      // =====================================================================
+      const FALLBACK_MODELS = [
+        { id: 'llama-3.1-8b-instant', label: 'llama-3.1-8b-instant', reasoning: false, webSearch: false, tpm: 6000 },
+        { id: 'llama-3.3-70b-versatile', label: 'llama-3.3-70b-versatile', reasoning: false, webSearch: false, tpm: 12000 },
+        { id: 'openai/gpt-oss-120b', label: 'openai/gpt-oss-120b · reasoning, web search', reasoning: true, webSearch: true, tpm: 8000 },
+        { id: 'openai/gpt-oss-20b', label: 'openai/gpt-oss-20b · reasoning, web search', reasoning: true, webSearch: true, tpm: 8000 },
+        { id: 'qwen/qwen3.8-27b', label: 'qwen/qwen3.8-27b · reasoning', reasoning: true, webSearch: false, tpm: 6000 },
+      ];
+
+      const PRESETS = {
+        fewshot: `Classify the sentiment of each review.\n\nInput: The battery lasts all day and the screen is super bright.\nOutput: positive\n\nInput: Stopped working after two days, total waste of money.\nOutput: negative\n\nInput: The camera is decent for the price.\nOutput:`,
+        cot: `Solve this step by step. Think carefully before giving the final answer.\n\nQuestion: A server processes 45 tokens per second. If a response has 270 tokens and starts after a 400 ms delay, how many seconds does the full request take?`,
+        role: `You are a senior systems architect. Do not use jargon or marketing buzzwords.\nRespond strictly as a JSON object with keys: "summary", "risks", and "next_step".\n\nExplain why stateless LLM APIs send the full conversation history on every turn.`,
+        zeroshot: `Summarize the key difference between temperature and max_tokens in two concise sentences.`
+      };
+
+      // =====================================================================
+      // 2. APPLICATION STATE
+      // =====================================================================
+      const state = {
+        models: [...FALLBACK_MODELS],
+        model: 'llama-3.3-70b-versatile',
+        apiKey: '',
+        rememberKey: false,
+        temperature: 0.7,
+        maxTokens: 300,
+        stopSequences: '',
+        webSearch: false,
+        reasoning: false,
+        messages: [],
+        isStreaming: false,
+        abortController: null,
+        simTimer: null,
+        showVisuals: true,
+        turnHistory: [],
+        tpmUsedThisMinute: 0,
+        lastStats: null,
+        mobileTab: 'chat',
+      };
+
+      // =====================================================================
+      // 3. DOM REFERENCES
+      // =====================================================================
+      const el = {
+        modelSelect: document.getElementById('modelSelect'),
+        modelSelectMobile: document.getElementById('modelSelectMobile'),
+        modelListNote: document.getElementById('modelListNote'),
+        apiKeyInput: document.getElementById('apiKeyInput'),
+        clearKeyBtn: document.getElementById('clearKeyBtn'),
+        toggleKeyVisBtn: document.getElementById('toggleKeyVisBtn'),
+        rememberKeyCheckbox: document.getElementById('rememberKeyCheckbox'),
+        tempSlider: document.getElementById('tempSlider'),
+        tempNumber: document.getElementById('tempNumber'),
+        maxTokensSlider: document.getElementById('maxTokensSlider'),
+        maxTokensNumber: document.getElementById('maxTokensNumber'),
+        stopSeqInput: document.getElementById('stopSeqInput'),
+        webSearchToggle: document.getElementById('webSearchToggle'),
+        webSearchWarning: document.getElementById('webSearchWarning'),
+        reasoningToggle: document.getElementById('reasoningToggle'),
+        reasoningWarning: document.getElementById('reasoningWarning'),
+        resetConvBtn: document.getElementById('resetConvBtn'),
+        promptInput: document.getElementById('promptInput'),
+        submitBtn: document.getElementById('submitBtn'),
+        stopBtn: document.getElementById('stopBtn'),
+        emptyState: document.getElementById('emptyState'),
+        messagesList: document.getElementById('messagesList'),
+        conversationArea: document.getElementById('conversationArea'),
+        promptClassBadge: document.getElementById('promptClassBadge'),
+        promptRulesList: document.getElementById('promptRulesList'),
+        statTtft: document.getElementById('statTtft'),
+        statTotalSec: document.getElementById('statTotalSec'),
+        statTps: document.getElementById('statTps'),
+        tpsArc: document.getElementById('tpsArc'),
+        tpsArcValue: document.getElementById('tpsArcValue'),
+        tpsGaugeLabel: document.getElementById('tpsGaugeLabel'),
+        statInputTokens: document.getElementById('statInputTokens'),
+        statReasoningTokens: document.getElementById('statReasoningTokens'),
+        statOutputTokens: document.getElementById('statOutputTokens'),
+        statTotalTokens: document.getElementById('statTotalTokens'),
+        statTpmLeft: document.getElementById('statTpmLeft'),
+        barInputTokens: document.getElementById('barInputTokens'),
+        barReasoningTokens: document.getElementById('barReasoningTokens'),
+        barOutputTokens: document.getElementById('barOutputTokens'),
+        contextGrowthSvg: document.getElementById('contextGrowthSvg'),
+        turnCountLabel: document.getElementById('turnCountLabel'),
+        statusPill: document.getElementById('statusPill'),
+        statusDot: document.getElementById('statusDot'),
+        statusText: document.getElementById('statusText'),
+        statusTextShort: document.getElementById('statusTextShort'),
+        viewCodeBtn: document.getElementById('viewCodeBtn'),
+        codeModal: document.getElementById('codeModal'),
+        closeCodeModalBtn: document.getElementById('closeCodeModalBtn'),
+        curlCodeBlock: document.getElementById('curlCodeBlock'),
+        pythonCodeBlock: document.getElementById('pythonCodeBlock'),
+        toggleVisualsBtn: document.getElementById('toggleVisualsBtn'),
+        visualLabPanel: document.getElementById('visualLabPanel'),
+        probBarsContainer: document.getElementById('probBarsContainer'),
+        entropyBadge: document.getElementById('entropyBadge'),
+        neuralCanvas: document.getElementById('neuralCanvas'),
+        tokenPreviewStrip: document.getElementById('tokenPreviewStrip'),
+        liveTokenCountBadge: document.getElementById('liveTokenCountBadge'),
+        leftSidebar: document.getElementById('leftSidebar'),
+        centerPane: document.getElementById('centerPane'),
+        rightSidebar: document.getElementById('rightSidebar'),
+        toast: document.getElementById('toast'),
+        toastMsg: document.getElementById('toastMsg'),
+        toastDot: document.getElementById('toastDot'),
+      };
+
+      // =====================================================================
+      // 4. UTILITIES
+      // =====================================================================
+      function estimateTokens(text) {
+        if (!text) return 0;
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
+        const chars = text.length;
+        return Math.max(1, Math.round(Math.max(words * 1.32, chars / 3.9)));
+      }
+
+      function tokenizeForVisual(text) {
+        if (!text) return [];
+        const raw = text.match(/[A-Za-z0-9]+|[^\sA-Za-z0-9]+|\s+/g) || [];
+        return raw.filter((t) => t.trim().length > 0).slice(0, 26);
+      }
+
+      function getCurrentModelObj() {
+        return state.models.find((m) => m.id === state.model) || state.models[0];
+      }
+
+      function getStopSequencesArray() {
+        return state.stopSequences
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 4);
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      let toastTimeout = null;
+      function showToast(msg, isError = false) {
+        el.toastMsg.textContent = msg;
+        el.toastDot.className = `w-2 h-2 rounded-full ${isError ? 'bg-red-400' : 'bg-emerald-400'}`;
+        el.toast.classList.remove('hidden');
+        el.toast.classList.add('flex');
+        if (toastTimeout) clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {
+          el.toast.classList.add('hidden');
+          el.toast.classList.remove('flex');
+        }, 2500);
+      }
+
+      function copyToClipboard(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            () => showToast('Copied to clipboard'),
+            () => fallbackCopy(text)
+          );
+        } else {
+          fallbackCopy(text);
+        }
+      }
+
+      function fallbackCopy(text) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          showToast('Copied to clipboard');
+        } catch {
+          showToast('Could not copy automatically', true);
+        }
+      }
+
+      // =====================================================================
+      // 5. MODEL DROPDOWN & CAPABILITY WARNINGS
+      // =====================================================================
+      function renderModelSelects() {
+        const html = state.models
+          .map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === state.model ? 'selected' : ''}>${escapeHtml(m.label)}</option>`)
+          .join('');
+        el.modelSelect.innerHTML = html;
+        el.modelSelectMobile.innerHTML = html;
+        updateCapabilityWarnings();
+      }
+
+      function updateCapabilityWarnings() {
+        const m = getCurrentModelObj();
+        el.webSearchWarning.classList.toggle('hidden', !!m.webSearch);
+        el.reasoningWarning.classList.toggle('hidden', !!m.reasoning);
+      }
+
+      function updateStatusPill() {
+        const hasKey = state.apiKey.trim().length > 8;
+        if (hasKey) {
+          el.statusPill.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-emerald-500/40 bg-emerald-500/15 text-emerald-400';
+          el.statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse-dot';
+          el.statusText.textContent = 'LIVE — real API calls';
+          el.statusTextShort.textContent = 'LIVE';
+        } else {
+          el.statusPill.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-amber-500/35 bg-amber-500/10 text-amber-300';
+          el.statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse-dot';
+          el.statusText.textContent = 'DEMO — simulated stream';
+          el.statusTextShort.textContent = 'DEMO';
+        }
+      }
+
+      async function fetchLiveModelsIfPossible(key) {
+        if (!key || !key.startsWith('gsk_')) return;
+        try {
+          const res = await fetch('https://api.groq.com/openai/v1/models', {
+            headers: { Authorization: `Bearer ${key}` },
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!Array.isArray(data.data) || data.data.length === 0) return;
+          const live = data.data
+            .map((item) => {
+              const id = item.id;
+              const isOss = id.includes('gpt-oss');
+              const isReasoning = isOss || id.includes('qwen') || id.includes('deepseek-r1');
+              const tags = [];
+              if (isReasoning) tags.push('reasoning');
+              if (isOss) tags.push('web search');
+              return {
+                id,
+                label: tags.length ? `${id} · ${tags.join(', ')}` : id,
+                reasoning: isReasoning,
+                webSearch: isOss,
+                tpm: 10000,
+              };
+            })
+            .sort((a, b) => a.id.localeCompare(b.id));
+          state.models = live;
+          if (!live.some((m) => m.id === state.model)) {
+            state.model = live[0].id;
+          }
+          el.modelListNote.textContent = `Loaded ${live.length} live Groq models`;
+          renderModelSelects();
+        } catch {
+          // Graceful fallback to default list
+        }
+      }
+
+      // =====================================================================
+      // 6. PROMPT ANALYSIS ENGINE (LIVE)
+      // =====================================================================
+      function analyzePrompt(text) {
+        const lines = text.split('\n');
+
+        // 1. Input: / Output: pairs with an answer
+        let ioPairs = 0;
+        let emptyOutputIgnored = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (/^\s*Input\s*:/i.test(lines[i])) {
+            for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+              const outMatch = lines[j].match(/^\s*Output\s*:(.*)$/i);
+              if (outMatch) {
+                if (outMatch[1].trim().length > 0) ioPairs++;
+                else emptyOutputIgnored++;
+                break;
+              }
+            }
+          }
+        }
+
+        // 2. Q: / A: pairs
+        let qaPairs = 0;
+        for (let i = 0; i < lines.length; i++) {
+          if (/^\s*Q\s*:/i.test(lines[i])) {
+            for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+              const aMatch = lines[j].match(/^\s*A\s*:(.*)$/i);
+              if (aMatch) {
+                if (aMatch[1].trim().length > 0) qaPairs++;
+                break;
+              }
+            }
+          }
+        }
+
+        // 3. Labelled pairs "Input:" / "Output:" (including Review:/Sentiment:, Text:/Label:, etc.)
+        const labelledPairs = ioPairs;
+
+        // 4. Arrow pairs (-> or =>)
+        const arrowPairs = lines.filter((l) => /.+\s*(->|=>)\s*.+/.test(l)).length;
+
+        // 5. Quoted pairs "x" -> "y"
+        const quotedPairs = lines.filter((l) => /"[^"]+"\s*(->|=>)\s*"[^"]+"/.test(l)).length;
+
+        // 6. Blocks separated by ### or ---
+        const separatorCount = lines.filter((l) => /^\s*(###|---)\s*$/.test(l)).length;
+        const blocksCount = separatorCount > 0 ? separatorCount : 0;
+
+        // 7. Chain-of-Thought
+        const hasCot = /\b(step[- ]by[- ]step|chain[- ]of[- ]thought|think carefully|show your reasoning|let's think)\b/i.test(text);
+
+        // 8. Role prompting
+        const hasRole = /\b(you are a|act as a|act as an|as a senior|you are an)\b/i.test(text);
+
+        // 9. Negative constraint
+        const hasNeg = /\b(do not|don't|never|avoid|without|no jargon)\b/i.test(text);
+
+        // 10. Format constraint
+        const hasFmt = /\b(json|markdown|bullet|table|concise|two sentences|strictly as|format)\b/i.test(text);
+
+        const maxExamples = Math.max(ioPairs, qaPairs, labelledPairs, arrowPairs, quotedPairs, blocksCount);
+
+        let badge = 'ZERO-SHOT';
+        if (maxExamples > 0) {
+          badge = `FEW-SHOT (${maxExamples})`;
+        } else if (hasCot) {
+          badge = 'CHAIN-OF-THOUGHT';
+        } else if (hasRole) {
+          badge = 'ROLE-PROMPTED';
+        }
+
+        const rules = [
+          {
+            label: 'Input: / Output: pairs with an answer',
+            count: ioPairs,
+            note: emptyOutputIgnored > 0 ? `${emptyOutputIgnored} empty Output: ignored as question` : '',
+          },
+          { label: 'Q: / A: pairs with an answer', count: qaPairs },
+          { label: 'Labelled pairs "Input:" / "Output:" with an answer', count: labelledPairs },
+          { label: 'Lines with text on both sides of -> or =>', count: arrowPairs },
+          { label: 'Quoted pairs like "x" -> "y"', count: quotedPairs },
+          { label: 'Blocks separated by ### or ---', count: blocksCount },
+          { label: 'Chain-of-Thought', bool: hasCot },
+          { label: 'Role prompting', bool: hasRole },
+          { label: 'Negative constraint', bool: hasNeg },
+          { label: 'Format constraint', bool: hasFmt },
+        ];
+
+        el.promptClassBadge.textContent = badge;
+        el.promptRulesList.innerHTML = rules
+          .map((r) => {
+            const active = typeof r.count === 'number' ? r.count > 0 : !!r.bool;
+            const statusChip =
+              typeof r.count === 'number'
+                ? active
+                  ? `<span class="font-mono text-amber-300 font-semibold">✓ ${r.count}</span>`
+                  : `<span class="font-mono text-gray-600">0</span>`
+                : active
+                ? `<span class="font-mono text-emerald-400 font-semibold">✓</span>`
+                : `<span class="font-mono text-gray-600">–</span>`;
+
+            return `
+              <li class="flex items-start justify-between gap-2 py-1 border-b border-[#222630] last:border-b-0 ${active ? 'text-gray-200' : 'text-gray-500'}">
+                <div class="leading-snug">
+                  <div>${escapeHtml(r.label)}</div>
+                  ${r.note ? `<div class="text-[10px] text-amber-400/80 mt-0.5">${escapeHtml(r.note)}</div>` : ''}
+                </div>
+                <div class="shrink-0 pt-0.5">${statusChip}</div>
+              </li>
+            `;
+          })
+          .join('');
+      }
+
+      // =====================================================================
+      // 7. CREATIVE VISUALS: PROBABILITY BARS, TOKENIZER & NEURAL CANVAS
+      // =====================================================================
+      const SAMPLE_LOGITS = [
+        { token: 'positive', baseLogit: 4.1 },
+        { token: 'neutral', baseLogit: 2.3 },
+        { token: 'mixed', baseLogit: 1.5 },
+        { token: 'decent', baseLogit: 0.9 },
+        { token: 'negative', baseLogit: -0.4 },
+      ];
+
+      function updateTemperatureVisual() {
+        const T = Math.max(0.05, state.temperature);
+        const scaled = SAMPLE_LOGITS.map((item) => Math.exp(item.baseLogit / T));
+        const sum = scaled.reduce((a, b) => a + b, 0);
+        const probs = SAMPLE_LOGITS.map((item, idx) => ({
+          token: item.token,
+          prob: (scaled[idx] / sum) * 100,
+        }));
+
+        let regime = 'Balanced';
+        if (state.temperature <= 0.25) regime = 'Focused';
+        else if (state.temperature >= 1.2) regime = 'High Entropy';
+        el.entropyBadge.textContent = `T = ${state.temperature.toFixed(2)} · ${regime}`;
+
+        el.probBarsContainer.innerHTML = probs
+          .map((p, i) => {
+            const barColor = i === 0 ? 'bg-[#f95d2c]' : i === 1 ? 'bg-amber-400' : 'bg-sky-400/75';
+            return `
+              <div class="flex items-center gap-2 text-[11px] font-mono">
+                <span class="w-16 text-gray-300 truncate text-right">"${p.token}"</span>
+                <div class="flex-1 h-2 rounded-full bg-[#0d0e11] overflow-hidden border border-[#232732]">
+                  <div class="h-full ${barColor} rounded-full transition-all duration-200" style="width: ${p.prob.toFixed(1)}%"></div>
+                </div>
+                <span class="w-11 text-right text-gray-400">${p.prob.toFixed(1)}%</span>
+              </div>
+            `;
+          })
+          .join('');
+      }
+
+      const TOKEN_PALETTE = [
+        'bg-sky-500/15 text-sky-300 border-sky-500/30',
+        'bg-[#f95d2c]/15 text-orange-300 border-[#f95d2c]/30',
+        'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+        'bg-amber-500/15 text-amber-300 border-amber-500/30',
+        'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      ];
+
+      function updateTokenPreview() {
+        const text = el.promptInput.value;
+        const est = estimateTokens(text);
+        el.liveTokenCountBadge.textContent = `${est} est. prompt tokens`;
+        const chips = tokenizeForVisual(text);
+        el.tokenPreviewStrip.innerHTML = chips
+          .map((tok, i) => {
+            const cls = TOKEN_PALETTE[i % TOKEN_PALETTE.length];
+            return `<span class="token-chip px-1.5 py-0.5 rounded border ${cls}">${escapeHtml(tok)}</span>`;
+          })
+          .join('');
+      }
+
+      // Neural Canvas Animation
+      let neuralPulseIntensity = 0.25;
+      const particles = Array.from({ length: 24 }, (_, idx) => ({
+        x: Math.random(),
+        y: (idx % 6) / 5 * 0.7 + 0.15,
+        speed: 0.002 + Math.random() * 0.004,
+        radius: 1.5 + Math.random() * 2,
+        hue: idx % 3 === 0 ? '#f95d2c' : idx % 3 === 1 ? '#10b981' : '#38bdf8',
+      }));
+
+      function drawNeuralCanvas() {
+        const canvas = el.neuralCanvas;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0 && (canvas.width !== Math.floor(rect.width) || canvas.height !== Math.floor(rect.height))) {
+          canvas.width = Math.floor(rect.width);
+          canvas.height = Math.floor(rect.height);
+        }
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        if (!w || !h) {
+          requestAnimationFrame(drawNeuralCanvas);
+          return;
+        }
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Subtle grid lines
+        ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < w; x += 28) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h);
+          ctx.stroke();
+        }
+
+        // Decay pulse when not streaming
+        const target = state.isStreaming ? 1.0 : 0.22;
+        neuralPulseIntensity += (target - neuralPulseIntensity) * 0.08;
+
+        // Draw connections & particles
+        particles.forEach((p, idx) => {
+          p.x += p.speed * (1 + neuralPulseIntensity * 4.5);
+          if (p.x > 1.02) p.x = -0.02;
+
+          const px = p.x * w;
+          const py = p.y * h + Math.sin(p.x * 10 + idx) * (3 + neuralPulseIntensity * 4);
+
+          // Link to next particle
+          const next = particles[(idx + 1) % particles.length];
+          const nx = next.x * w;
+          const ny = next.y * h;
+          if (Math.abs(px - nx) < 90) {
+            ctx.strokeStyle = `rgba(249, 93, 44, ${0.08 + neuralPulseIntensity * 0.18})`;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(nx, ny);
+            ctx.stroke();
+          }
+
+          ctx.fillStyle = p.hue;
+          ctx.globalAlpha = 0.45 + neuralPulseIntensity * 0.55;
+          ctx.beginPath();
+          ctx.arc(px, py, p.radius * (0.9 + neuralPulseIntensity * 0.4), 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+
+        requestAnimationFrame(drawNeuralCanvas);
+      }
+
+      // =====================================================================
+      // 8. DIAGNOSTICS & CHARTS UPDATE
+      // =====================================================================
+      function updateStatsUI(stats) {
+        if (!stats) {
+          el.statTtft.textContent = '-';
+          el.statTotalSec.textContent = '-';
+          el.statTps.textContent = '-';
+          el.tpsArcValue.textContent = '-';
+          el.tpsArc.style.strokeDashoffset = '125.66';
+          el.tpsGaugeLabel.textContent = 'Idle';
+          el.statInputTokens.textContent = '-';
+          el.statReasoningTokens.textContent = '-';
+          el.statOutputTokens.textContent = '-';
+          el.statTotalTokens.textContent = '-';
+          el.statTpmLeft.textContent = '-';
+          el.barInputTokens.style.width = '0%';
+          el.barReasoningTokens.style.width = '0%';
+          el.barOutputTokens.style.width = '0%';
+          renderContextGrowthChart();
+          return;
+        }
+
+        el.statTtft.textContent = `${Math.round(stats.ttftMs)} ms`;
+        el.statTotalSec.textContent = `${stats.totalSec.toFixed(2)} s`;
+        el.statTps.textContent = `${Math.round(stats.tps)} tok/s`;
+
+        const clampedTps = Math.min(350, Math.max(0, stats.tps));
+        const arcLen = 125.66;
+        el.tpsArc.style.strokeDashoffset = String(arcLen - (clampedTps / 350) * arcLen);
+        el.tpsArcValue.textContent = `${Math.round(stats.tps)}`;
+        el.tpsGaugeLabel.textContent = stats.tps > 120 ? 'Fast' : 'Steady';
+
+        el.statInputTokens.textContent = stats.inputTokens.toLocaleString();
+        el.statReasoningTokens.textContent = stats.reasoningTokens.toLocaleString();
+        el.statOutputTokens.textContent = stats.outputTokens.toLocaleString();
+        el.statTotalTokens.textContent = stats.totalTokens.toLocaleString();
+        el.statTpmLeft.textContent = stats.tpmRemaining.toLocaleString();
+
+        const tot = Math.max(1, stats.totalTokens);
+        el.barInputTokens.style.width = `${(stats.inputTokens / tot) * 100}%`;
+        el.barReasoningTokens.style.width = `${(stats.reasoningTokens / tot) * 100}%`;
+        el.barOutputTokens.style.width = `${(stats.outputTokens / tot) * 100}%`;
+
+        renderContextGrowthChart();
+      }
+
+      function renderContextGrowthChart() {
+        const turns = state.turnHistory;
+        el.turnCountLabel.textContent = `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}`;
+        if (turns.length === 0) {
+          el.contextGrowthSvg.innerHTML = `<text x="110" y="27" text-anchor="middle" fill="#4b5563" font-size="9" font-family="Inter, sans-serif">Submit prompts to plot context growth</text>`;
+          return;
+        }
+
+        const w = 220;
+        const h = 48;
+        const maxVal = Math.max(50, ...turns.map((t) => t.totalTokens));
+        const barW = Math.min(24, (w - 16) / Math.max(1, turns.length) - 4);
+
+        const bars = turns
+          .map((t, idx) => {
+            const x = 8 + idx * (barW + 4);
+            const inH = (t.inputTokens / maxVal) * (h - 8);
+            const outH = ((t.outputTokens + t.reasoningTokens) / maxVal) * (h - 8);
+            const yIn = h - 4 - inH;
+            const yOut = yIn - outH;
+            return `
+              <rect x="${x}" y="${yIn}" width="${barW}" height="${inH}" rx="2" fill="#0ea5e9" opacity="0.85"></rect>
+              <rect x="${x}" y="${yOut}" width="${barW}" height="${outH}" rx="2" fill="#f95d2c" opacity="0.9"></rect>
+            `;
+          })
+          .join('');
+
+        el.contextGrowthSvg.innerHTML = bars;
+      }
+
+      // =====================================================================
+      // 9. CONVERSATION RENDERING
+      // =====================================================================
+      function renderConversation() {
+        if (state.messages.length === 0) {
+          el.emptyState.classList.remove('hidden');
+          el.messagesList.classList.add('hidden');
+          el.messagesList.innerHTML = '';
+          return;
+        }
+
+        el.emptyState.classList.add('hidden');
+        el.messagesList.classList.remove('hidden');
+
+        el.messagesList.innerHTML = state.messages
+          .map((msg) => {
+            const isUser = msg.role === 'user';
+            if (isUser) {
+              return `
+                <div class="flex flex-col items-end">
+                  <div class="max-w-[90%] sm:max-w-[82%] rounded-2xl rounded-tr-sm border border-[#2f3542] bg-[#1b1e25] px-4 py-3 text-xs sm:text-[13px] font-mono text-gray-100 whitespace-pre-wrap leading-relaxed shadow-sm">${escapeHtml(msg.content)}</div>
+                  <span class="text-[10px] text-gray-500 mt-1 font-mono">You · ${estimateTokens(msg.content)} est. tokens</span>
+                </div>
+              `;
+            }
+
+            const reasoningBlock = msg.reasoningContent
+              ? `
+                <details class="mb-2.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs">
+                  <summary class="cursor-pointer font-medium text-amber-300 select-none">Thinking process</summary>
+                  <div class="mt-2 font-mono text-[11px] text-amber-100/80 whitespace-pre-wrap leading-relaxed">${escapeHtml(msg.reasoningContent)}</div>
+                </details>
+              `
+              : '';
+
+            const searchBlock =
+              msg.searchSources && msg.searchSources.length
+                ? `
+                  <div class="mb-2.5 flex flex-wrap gap-1.5">
+                    ${msg.searchSources
+                      .map(
+                        (s) =>
+                          `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] bg-sky-500/10 border border-sky-500/30 text-sky-300 font-mono">🔎 ${escapeHtml(s)}</span>`
+                      )
+                      .join('')}
+                  </div>
+                `
+                : '';
+
+            const streamingCls = msg.streaming ? 'streaming-cursor' : '';
+            return `
+              <div class="flex flex-col items-start">
+                <div class="max-w-[95%] sm:max-w-[88%] rounded-2xl rounded-tl-sm border border-[#272b36] bg-[#14161b] px-4 py-3 shadow-sm">
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <span class="text-[10px] font-mono uppercase tracking-wider text-[#f95d2c] font-semibold">${escapeHtml(msg.model || state.model)}</span>
+                    ${msg.simulated ? '<span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/25 font-mono">Simulated</span>' : ''}
+                  </div>
+                  ${reasoningBlock}
+                  ${searchBlock}
+                  <div class="text-xs sm:text-[13px] font-mono text-gray-100 whitespace-pre-wrap leading-relaxed ${streamingCls}">${escapeHtml(msg.content)}</div>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+        el.conversationArea.scrollTop = el.conversationArea.scrollHeight;
+      }
+
+      // =====================================================================
+      // 10. SUBMIT / STREAMING (LIVE GROQ API + SMART DEMO SIMULATOR)
+      // =====================================================================
+      function setStreamingUI(streaming) {
+        state.isStreaming = streaming;
+        el.submitBtn.disabled = streaming;
+        el.submitBtn.classList.toggle('opacity-50', streaming);
+        el.stopBtn.classList.toggle('hidden', !streaming);
+      }
+
+      function stopStreaming() {
+        if (state.abortController) {
+          state.abortController.abort();
+          state.abortController = null;
+        }
+        if (state.simTimer) {
+          clearInterval(state.simTimer);
+          state.simTimer = null;
+        }
+        const last = state.messages[state.messages.length - 1];
+        if (last && last.streaming) {
+          last.streaming = false;
+          renderConversation();
+        }
+        setStreamingUI(false);
+      }
+
+      function buildSimulatedReply(prompt) {
+        const lower = prompt.toLowerCase();
+        const modelObj = getCurrentModelObj();
+        let reasoning = '';
+        let searchSources = [];
+        let answer = '';
+
+        if (state.reasoning && modelObj.reasoning) {
+          reasoning = `1. Inspecting prompt structure and constraints.\n2. Checking temperature=${state.temperature.toFixed(2)} and max_tokens=${state.maxTokens}.\n3. Formulating concise, grounded output.`;
+        }
+        if (state.webSearch && modelObj.webSearch) {
+          searchSources = ['docs.groq.com/api', 'arxiv.org/abs/llm-inference'];
+        }
+
+        if (lower.includes('camera is decent') || (lower.includes('input:') && lower.includes('output:'))) {
+          answer = state.temperature > 1.1 ? 'mixed (solid value)' : 'positive';
+        } else if (lower.includes('45 tokens per second') && lower.includes('270')) {
+          answer = `1. Token generation time: 270 tokens ÷ 45 tokens/sec = 6.00 seconds.\n2. Initial latency (TTFT): 400 ms = 0.40 seconds.\n3. Total request time: 6.00 s + 0.40 s = 6.40 seconds.`;
+        } else if (lower.includes('json')) {
+          answer = `{\n  "summary": "Stateless APIs have no server memory between calls, so each request includes prior turns.",\n  "risks": "Input token count and latency grow with conversation length.",\n  "next_step": "Trim or summarize older turns before hitting the context window."\n}`;
+        } else {
+          answer = `Temperature controls token sampling randomness (lower values sharpen top choices; higher values flatten the distribution), while max_tokens caps the maximum number of generated tokens per reply.`;
+        }
+
+        const stops = getStopSequencesArray();
+        for (const s of stops) {
+          const idx = answer.indexOf(s);
+          if (idx !== -1) {
+            answer = answer.slice(0, idx);
+            break;
+          }
+        }
+        return { answer, reasoning, searchSources };
+      }
+
+      async function handleSubmit() {
+        const prompt = el.promptInput.value.trim();
+        if (!prompt || state.isStreaming) return;
+
+        const userMsg = { id: Date.now() + '_u', role: 'user', content: prompt };
+        state.messages.push(userMsg);
+
+        const assistantMsg = {
+          id: Date.now() + '_a',
+          role: 'assistant',
+          content: '',
+          reasoningContent: '',
+          searchSources: [],
+          model: state.model,
+          streaming: true,
+          simulated: !state.apiKey.trim(),
+        };
+        state.messages.push(assistantMsg);
+        renderConversation();
+        setStreamingUI(true);
+
+        const apiMessages = state.messages
+          .filter((m) => m !== assistantMsg)
+          .map((m) => ({ role: m.role, content: m.content }));
+
+        const modelObj = getCurrentModelObj();
+        const key = state.apiKey.trim();
+
+        if (key) {
+          await runLiveGroqRequest(key, apiMessages, assistantMsg, modelObj);
+        } else {
+          runSimulatedStream(apiMessages, assistantMsg, modelObj);
+        }
+      }
+
+      function runSimulatedStream(apiMessages, assistantMsg, modelObj) {
+        const startTime = performance.now();
+        const { answer, reasoning, searchSources } = buildSimulatedReply(apiMessages[apiMessages.length - 1].content);
+        assistantMsg.searchSources = searchSources;
+
+        const delayMs = 160 + (state.webSearch && modelObj.webSearch ? 260 : 0) + (state.reasoning && modelObj.reasoning ? 240 : 0);
+        const tokens = answer.match(/\S+\s*/g) || [answer];
+        let idx = 0;
+        let firstTokenTime = null;
+
+        setTimeout(() => {
+          if (!state.isStreaming) return;
+          if (reasoning) assistantMsg.reasoningContent = reasoning;
+
+          state.simTimer = setInterval(() => {
+            if (!state.isStreaming) {
+              clearInterval(state.simTimer);
+              return;
+            }
+            if (firstTokenTime === null) firstTokenTime = performance.now();
+
+            if (idx < tokens.length) {
+              assistantMsg.content += tokens[idx];
+              idx++;
+              renderConversation();
+            } else {
+              clearInterval(state.simTimer);
+              state.simTimer = null;
+              assistantMsg.streaming = false;
+              renderConversation();
+              setStreamingUI(false);
+
+              const endTime = performance.now();
+              const totalSec = Math.max(0.05, (endTime - startTime) / 1000);
+              const ttftMs = firstTokenTime ? firstTokenTime - startTime : delayMs;
+              const inputTokens = apiMessages.reduce((acc, m) => acc + estimateTokens(m.content) + 4, 3);
+              const reasoningTokens = reasoning ? estimateTokens(reasoning) : 0;
+              const outputTokens = Math.min(state.maxTokens, estimateTokens(assistantMsg.content));
+              const totalTokens = inputTokens + reasoningTokens + outputTokens;
+              const genSec = Math.max(0.05, (endTime - (firstTokenTime || startTime)) / 1000);
+              const tps = Math.max(25, Math.round((outputTokens + reasoningTokens) / genSec));
+
+              state.tpmUsedThisMinute += totalTokens;
+              const tpmRemaining = Math.max(0, (modelObj.tpm || 12000) - state.tpmUsedThisMinute);
+
+              state.turnHistory.push({ turn: state.turnHistory.length + 1, inputTokens, reasoningTokens, outputTokens, totalTokens, tps });
+              updateStatsUI({ ttftMs, totalSec, tps, inputTokens, reasoningTokens, outputTokens, totalTokens, tpmRemaining });
+            }
+          }, 42);
+        }, delayMs);
+      }
+
+      async function runLiveGroqRequest(key, apiMessages, assistantMsg, modelObj) {
+        const controller = new AbortController();
+        state.abortController = controller;
+        const startTime = performance.now();
+        let firstTokenTime = null;
+
+        const body = {
+          model: state.model,
+          messages: apiMessages,
+          temperature: state.temperature,
+          max_tokens: state.maxTokens,
+          stream: true,
+          stream_options: { include_usage: true },
+        };
+        const stops = getStopSequencesArray();
+        if (stops.length > 0) body.stop = stops;
+
+        try {
+          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${key}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(`HTTP ${res.status}: ${errText.slice(0, 180)}`);
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buffer = '';
+          let usage = null;
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+              const payload = trimmed.slice(5).trim();
+              if (payload === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(payload);
+                const delta = parsed.choices?.[0]?.delta;
+                if (delta?.reasoning) {
+                  if (firstTokenTime === null) firstTokenTime = performance.now();
+                  assistantMsg.reasoningContent += delta.reasoning;
+                }
+                if (delta?.content) {
+                  if (firstTokenTime === null) firstTokenTime = performance.now();
+                  assistantMsg.content += delta.content;
+                }
+                if (parsed.usage) usage = parsed.usage;
+                if (parsed.x_groq?.usage) usage = parsed.x_groq.usage;
+                renderConversation();
+              } catch {
+                // Ignore partial SSE chunk
+              }
+            }
+          }
+
+          assistantMsg.streaming = false;
+          renderConversation();
+          setStreamingUI(false);
+
+          const endTime = performance.now();
+          const totalSec = Math.max(0.05, (endTime - startTime) / 1000);
+          const ttftMs = firstTokenTime ? firstTokenTime - startTime : totalSec * 1000;
+          const inputTokens = usage?.prompt_tokens ?? apiMessages.reduce((a, m) => a + estimateTokens(m.content), 0);
+          const outputTokens = usage?.completion_tokens ?? estimateTokens(assistantMsg.content);
+          const reasoningTokens = assistantMsg.reasoningContent ? estimateTokens(assistantMsg.reasoningContent) : 0;
+          const totalTokens = usage?.total_tokens ?? inputTokens + outputTokens + reasoningTokens;
+          const genSec = Math.max(0.05, (endTime - (firstTokenTime || startTime)) / 1000);
+          const tps = Math.round(outputTokens / genSec);
+
+          state.tpmUsedThisMinute += totalTokens;
+          const tpmRemaining = Math.max(0, (modelObj.tpm || 12000) - state.tpmUsedThisMinute);
+          state.turnHistory.push({ turn: state.turnHistory.length + 1, inputTokens, reasoningTokens, outputTokens, totalTokens, tps });
+          updateStatsUI({ ttftMs, totalSec, tps, inputTokens, reasoningTokens, outputTokens, totalTokens, tpmRemaining });
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            assistantMsg.content = `API Error: ${err.message}`;
+            showToast('Groq API request failed', true);
+          }
+          assistantMsg.streaming = false;
+          renderConversation();
+          setStreamingUI(false);
+        } finally {
+          state.abortController = null;
+        }
+      }
+
+      // =====================================================================
+      // 11. VIEW CODE MODAL GENERATOR
+      // =====================================================================
+      function updateCodeModal() {
+        const currentPrompt = el.promptInput.value.trim();
+        const msgs = state.messages
+          .filter((m) => !m.streaming)
+          .map((m) => ({ role: m.role, content: m.content }));
+        if (currentPrompt) {
+          msgs.push({ role: 'user', content: currentPrompt });
+        }
+
+        const payload = {
+          model: state.model,
+          messages: msgs,
+          temperature: state.temperature,
+          max_tokens: state.maxTokens,
+          stream: true,
+          stream_options: { include_usage: true },
+        };
+        const stops = getStopSequencesArray();
+        if (stops.length > 0) payload.stop = stops;
+
+        const jsonStr = JSON.stringify(payload, null, 2);
+
+        el.curlCodeBlock.textContent =
+`curl https://api.groq.com/openai/v1/chat/completions \\
+  -H "Authorization: Bearer $GROQ_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '${jsonStr.replace(/'/g, "'\\''")}'`;
+
+        el.pythonCodeBlock.textContent =
+`import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    api_key=os.environ["GROQ_API_KEY"],
+)
+
+stream = client.chat.completions.create(
+    model="${state.model}",
+    messages=${JSON.stringify(msgs, null, 4)},
+    temperature=${state.temperature},
+    max_tokens=${state.maxTokens},${stops.length ? `\n    stop=${JSON.stringify(stops)},` : ''}
+    stream=True,
+    stream_options={"include_usage": True},
+)
+
+for chunk in stream:
+    delta = chunk.choices[0].delta.content if chunk.choices else None
+    if delta:
+        print(delta, end="", flush=True)`;
+      }
+
+      // =====================================================================
+      // 12. MOBILE TAB NAVIGATION
+      // =====================================================================
+      function applyResponsiveTabs() {
+        const isDesktop = window.innerWidth >= 1024;
+        if (isDesktop) {
+          el.leftSidebar.classList.remove('hidden');
+          el.centerPane.classList.remove('hidden');
+          el.rightSidebar.classList.remove('hidden');
+          return;
+        }
+        el.leftSidebar.classList.toggle('hidden', state.mobileTab !== 'params');
+        el.centerPane.classList.toggle('hidden', state.mobileTab !== 'chat');
+        el.rightSidebar.classList.toggle('hidden', state.mobileTab !== 'diagnostics');
+
+        if (state.mobileTab === 'params') el.leftSidebar.classList.add('flex');
+        if (state.mobileTab === 'diagnostics') el.rightSidebar.classList.add('flex');
+      }
+
+      // =====================================================================
+      // 13. EVENT LISTENERS & INITIALIZATION
+      // =====================================================================
+      function bindEvents() {
+        // Model selectors
+        const onModelChange = (val) => {
+          state.model = val;
+          el.modelSelect.value = val;
+          el.modelSelectMobile.value = val;
+          updateCapabilityWarnings();
+        };
+        el.modelSelect.addEventListener('change', (e) => onModelChange(e.target.value));
+        el.modelSelectMobile.addEventListener('change', (e) => onModelChange(e.target.value));
+
+        // API Key
+        el.apiKeyInput.addEventListener('input', (e) => {
+          state.apiKey = e.target.value;
+          updateStatusPill();
+          if (state.rememberKey) {
+            try { sessionStorage.setItem('groq_api_key', state.apiKey); } catch {}
+          }
+          if (state.apiKey.trim().startsWith('gsk_') && state.apiKey.trim().length > 20) {
+            fetchLiveModelsIfPossible(state.apiKey.trim());
+          }
+        });
+
+        el.rememberKeyCheckbox.addEventListener('change', (e) => {
+          state.rememberKey = e.target.checked;
+          try {
+            if (state.rememberKey && state.apiKey) {
+              sessionStorage.setItem('groq_api_key', state.apiKey);
+            } else {
+              sessionStorage.removeItem('groq_api_key');
+            }
+          } catch {}
+        });
+
+        el.clearKeyBtn.addEventListener('click', () => {
+          state.apiKey = '';
+          el.apiKeyInput.value = '';
+          el.rememberKeyCheckbox.checked = false;
+          state.rememberKey = false;
+          try { sessionStorage.removeItem('groq_api_key'); } catch {}
+          state.models = [...FALLBACK_MODELS];
+          if (!state.models.some((m) => m.id === state.model)) {
+            state.model = 'llama-3.3-70b-versatile';
+          }
+          el.modelListNote.textContent = 'Fallback list — paste a key to load live models';
+          renderModelSelects();
+          updateStatusPill();
+          showToast('API key cleared');
+        });
+
+        el.toggleKeyVisBtn.addEventListener('click', () => {
+          const isPass = el.apiKeyInput.type === 'password';
+          el.apiKeyInput.type = isPass ? 'text' : 'password';
+          el.toggleKeyVisBtn.textContent = isPass ? 'Hide' : 'Show';
+        });
+
+        // Temperature sync
+        const setTemp = (val) => {
+          const clamped = Math.min(2, Math.max(0, isNaN(val) ? 0.7 : val));
+          state.temperature = clamped;
+          el.tempSlider.value = clamped;
+          el.tempNumber.value = clamped;
+          updateTemperatureVisual();
+        };
+        el.tempSlider.addEventListener('input', (e) => setTemp(parseFloat(e.target.value)));
+        el.tempNumber.addEventListener('input', (e) => setTemp(parseFloat(e.target.value)));
+
+        // Max Tokens sync
+        const setMaxTokens = (val) => {
+          const clamped = Math.min(4096, Math.max(16, isNaN(val) ? 300 : Math.round(val)));
+          state.maxTokens = clamped;
+          el.maxTokensSlider.value = clamped;
+          el.maxTokensNumber.value = clamped;
+        };
+        el.maxTokensSlider.addEventListener('input', (e) => setMaxTokens(parseInt(e.target.value, 10)));
+        el.maxTokensNumber.addEventListener('input', (e) => setMaxTokens(parseInt(e.target.value, 10)));
+
+        // Stop sequences
+        el.stopSeqInput.addEventListener('input', (e) => {
+          state.stopSequences = e.target.value;
+        });
+
+        // Toggles
+        el.webSearchToggle.addEventListener('click', () => {
+          state.webSearch = !state.webSearch;
+          el.webSearchToggle.classList.toggle('active', state.webSearch);
+          el.webSearchToggle.setAttribute('aria-checked', String(state.webSearch));
+        });
+
+        el.reasoningToggle.addEventListener('click', () => {
+          state.reasoning = !state.reasoning;
+          el.reasoningToggle.classList.toggle('active', state.reasoning);
+          el.reasoningToggle.setAttribute('aria-checked', String(state.reasoning));
+        });
+
+        // Reset conversation
+        el.resetConvBtn.addEventListener('click', () => {
+          stopStreaming();
+          state.messages = [];
+          state.turnHistory = [];
+          state.lastStats = null;
+          renderConversation();
+          updateStatsUI(null);
+          showToast('Conversation reset');
+        });
+
+        // Prompt input & Presets
+        el.promptInput.addEventListener('input', () => {
+          analyzePrompt(el.promptInput.value);
+          updateTokenPreview();
+        });
+
+        document.querySelectorAll('.preset-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-preset');
+            if (PRESETS[key]) {
+              el.promptInput.value = PRESETS[key];
+              analyzePrompt(el.promptInput.value);
+              updateTokenPreview();
+            }
+          });
+        });
+
+        // Submit & Stop
+        el.submitBtn.addEventListener('click', handleSubmit);
+        el.stopBtn.addEventListener('click', stopStreaming);
+
+        el.promptInput.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            handleSubmit();
+          } else if (e.key === 'Escape' && state.isStreaming) {
+            e.preventDefault();
+            stopStreaming();
+          }
+        });
+
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            if (!el.codeModal.classList.contains('hidden')) {
+              el.codeModal.classList.add('hidden');
+              el.codeModal.classList.remove('flex');
+            } else if (state.isStreaming) {
+              stopStreaming();
+            }
+          }
+        });
+
+        // Visual Lab toggle
+        el.toggleVisualsBtn.addEventListener('click', () => {
+          state.showVisuals = !state.showVisuals;
+          el.visualLabPanel.classList.toggle('hidden', !state.showVisuals);
+        });
+
+        // Code Modal
+        el.viewCodeBtn.addEventListener('click', () => {
+          updateCodeModal();
+          el.codeModal.classList.remove('hidden');
+          el.codeModal.classList.add('flex');
+        });
+        el.closeCodeModalBtn.addEventListener('click', () => {
+          el.codeModal.classList.add('hidden');
+          el.codeModal.classList.remove('flex');
+        });
+        el.codeModal.addEventListener('click', (e) => {
+          if (e.target === el.codeModal) {
+            el.codeModal.classList.add('hidden');
+            el.codeModal.classList.remove('flex');
+          }
+        });
+
+        document.querySelectorAll('.copy-code-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-copy-target');
+            const pre = document.getElementById(targetId);
+            if (pre) copyToClipboard(pre.textContent);
+          });
+        });
+
+        // Mobile tabs
+        document.querySelectorAll('.mobile-tab-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            state.mobileTab = btn.getAttribute('data-mobile-tab');
+            document.querySelectorAll('.mobile-tab-btn').forEach((b) => {
+              const active = b === btn;
+              b.className = `mobile-tab-btn py-1.5 rounded-md text-xs font-medium transition-colors ${
+                active ? 'bg-[#1b1e25] text-white' : 'text-gray-400 hover:text-gray-200'
+              }`;
+            });
+            applyResponsiveTabs();
+          });
+        });
+
+        window.addEventListener('resize', applyResponsiveTabs);
+      }
+
+      function init() {
+        // Restore key if saved in sessionStorage
+        try {
+          const savedKey = sessionStorage.getItem('groq_api_key');
+          if (savedKey) {
+            state.apiKey = savedKey;
+            state.rememberKey = true;
+            el.apiKeyInput.value = savedKey;
+            el.rememberKeyCheckbox.checked = true;
+          }
+        } catch {}
+
+        el.promptInput.value = PRESETS.fewshot;
+        renderModelSelects();
+        updateStatusPill();
+        analyzePrompt(el.promptInput.value);
+        updateTemperatureVisual();
+        updateTokenPreview();
+        updateStatsUI(null);
+        bindEvents();
+        applyResponsiveTabs();
+        requestAnimationFrame(drawNeuralCanvas);
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
